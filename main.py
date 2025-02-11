@@ -1,78 +1,35 @@
 import subprocess
 import sys
 import os
-
-def check_and_install_packages():
-    """检查并安装所需的包"""
-    required_packages = {
-        'pandas': 'pandas',
-        'matplotlib': 'matplotlib',
-        'numpy': 'numpy',
-        'openpyxl': 'openpyxl',
-        'xlrd': 'xlrd',
-        'scipy': 'scipy',  # 添加scipy包用于统计分析
-        'seaborn': 'seaborn'  # 添加seaborn包用于更美观的统计图表
-    }
-    
-    def install_package(package_name):
-        print(f"正在安装 {package_name}...")
-        try:
-            # 添加超时参数和升级pip的选项
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", package_name], 
-                               timeout=300)
-            print(f"{package_name} 安装成功！")
-            return True
-        except subprocess.CalledProcessError:
-            print(f"{package_name} 安装失败，请手动安装。")
-            return False
-        except subprocess.TimeoutExpired:
-            print(f"{package_name} 安装超时，请检查网络连接或手动安装。")
-            return False
-
-    all_installed = True
-    for package, pip_name in required_packages.items():
-        try:
-            __import__(package)
-            print(f"{package} 已安装")
-        except ImportError:
-            print(f"未找到 {package}，准备安装...")
-            if not install_package(pip_name):
-                all_installed = False
-    
-    if not all_installed:
-        print("\n有些包安装失败，请手动安装后再运行程序。")
-        sys.exit(1)
-    
-    print("\n所有必需的包都已安装！\n")
-
-# 运行环境检查
-if __name__ == "__main__":
-    check_and_install_packages()
-    
-    # 在确认环境后导入所需的包
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import os
-    import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 def get_excel_files():
-    """获取当前目录下的所有Excel文件"""
+    """获取data目录下的所有Excel文件"""
     # 获取当前脚本所在目录的绝对路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    print(f"当前搜索目录：{current_dir}")  # 添加调试信息
+    data_dir = os.path.join(current_dir, 'data')
+    
+    # 检查data目录是否存在
+    if not os.path.exists(data_dir):
+        print(f"错误：找不到data目录：{data_dir}")
+        return []
+        
+    print(f"当前搜索目录：{data_dir}")  # 添加调试信息
     
     # 修改文件扩展名匹配逻辑，使其大小写不敏感
     excel_files = [
-        f for f in os.listdir(current_dir) 
+        f for f in os.listdir(data_dir) 
         if f.lower().endswith(('.xlsx', '.xls'))
     ]
     print(f"找到的Excel文件：{excel_files}")  # 添加调试信息
     
-    return excel_files
+    return excel_files, data_dir
 
-def select_file(excel_files):
+def select_file(excel_files, data_dir):
     """让用户选择要处理的Excel文件"""
-    print("在当前目录下找到以下Excel文件：")
+    print("在data目录下找到以下Excel文件：")
     for i, file in enumerate(excel_files, 1):
         print(f"{i}. {file}")
     
@@ -82,7 +39,7 @@ def select_file(excel_files):
             if 1 <= choice <= len(excel_files):
                 # 确保使用正确的文件名（包括大小写）
                 selected_file = excel_files[choice-1]
-                file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), selected_file)
+                file_path = os.path.join(data_dir, selected_file)
                 if os.path.exists(file_path):
                     return file_path
                 else:
@@ -198,11 +155,31 @@ def process_data(df):
 
 def setup_chinese_display():
     """配置matplotlib中文显示"""
-    plt.rcParams['font.sans-serif'] = ['SimHei']
+    # 对于 MacOS，使用更常见的中文字体
+    if sys.platform.startswith('darwin'):  # MacOS
+        plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Heiti TC', 'PingFang HK']
+    else:  # Windows 和其他系统
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
     plt.rcParams['axes.unicode_minus'] = False
 
 def create_boxplot(df, title):
-    """为不同组的数据创建并列箱型图"""
+    """为不同组的数据创建并列箱型图，并保存到result文件夹"""
+    # 创建result文件夹（如果不存在）
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    result_dir = os.path.join(current_dir, 'result')
+    os.makedirs(result_dir, exist_ok=True)
+    
+    # 获取文件名（不含路径）并清理非法字符
+    file_name = os.path.splitext(os.path.basename(title))[0]
+    
+    # 处理列名中的特殊字符
+    def clean_filename(name):
+        # 替换文件名中的非法字符
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            name = name.replace(char, '_')
+        return name
+    
     # 创建分组函数
     def get_group(name):
         # 分割name字符串
@@ -245,11 +222,23 @@ def create_boxplot(df, title):
             x = np.random.normal(i, 0.04, size=len(group_data))
             plt.scatter(x, group_data, alpha=0.5, s=30)
         
-        plt.title(f'{title} - {col}', fontsize=12)
+        plt.title(f'{file_name} - {col}', fontsize=12)
         plt.xlabel('组别', fontsize=10)
         plt.ylabel('数值', fontsize=10)
         plt.tight_layout()
-        plt.show()
+        
+        # 使用清理后的文件名和列名
+        safe_col_name = clean_filename(col)
+        safe_file_name = clean_filename(file_name)
+        save_path = os.path.join(result_dir, f'{safe_file_name}_{safe_col_name}.png')
+        
+        try:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"图表已保存到：{save_path}")
+        except Exception as e:
+            print(f"保存图表时出错：{str(e)}")
+            plt.close()
         
         # 打印每组的数据统计
         print(f"\n{col} 的数据统计：")
@@ -268,13 +257,13 @@ def create_boxplot_from_excel():
     setup_chinese_display()
     
     # 获取Excel文件列表
-    excel_files = get_excel_files()
+    excel_files, data_dir = get_excel_files()
     if not excel_files:
-        print("当前目录下没有找到Excel文件！")
+        print("data目录下没有找到Excel文件！")
         return
     
     # 用户选择文件
-    selected_file = select_file(excel_files)
+    selected_file = select_file(excel_files, data_dir)
     
     try:
         # 读取并处理数据
